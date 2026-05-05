@@ -5,18 +5,39 @@ function createDownloadLink(element) {
     return link_start + "/files/" + file_id + "/download?download_frd=1";
 }
 
-// Function to download multiple files
-function downloadFiles(urls) {
-    urls.forEach((url, index) => {
-        setTimeout(() => {
-            const link = document.createElement('a');
-            link.href = url;
-            link.style.display = 'none';
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-        }, index * 1000); // Add 1 second delay between downloads to prevent browser issues
-    });
+// Function to download multiple files sequentially
+async function downloadFiles(urls, onProgress) {
+    for (let i = 0; i < urls.length; i++) {
+        await triggerDownload(urls[i]);
+        if (onProgress) onProgress(i);
+        if (i < urls.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 1500));
+        }
+    }
+}
+
+async function triggerDownload(url) {
+    try {
+        const response = await fetch(url, { credentials: 'include' });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const blob = await response.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = blobUrl;
+        link.download = '';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+    } catch {
+        // Fallback: direct link click
+        const link = document.createElement('a');
+        link.href = url;
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        link.click();
+        setTimeout(() => document.body.removeChild(link), 500);
+    }
 }
 
 // Add checkbox styles
@@ -63,14 +84,24 @@ document.querySelectorAll(".context_module").forEach(function(module) {
     clearBtn.style.marginLeft = "10px";
     clearBtn.style.display = "none"; // Initially hidden
 
+    function runDownload(urls, btn, label) {
+        btn.disabled = true;
+        btn.innerHTML = `<i class="icon-download"></i> 0/${urls.length}`;
+        downloadFiles(urls, (i) => {
+            btn.innerHTML = `<i class="icon-download"></i> ${i + 1}/${urls.length}`;
+        }).then(() => {
+            btn.innerHTML = `<i class="icon-download"></i> ${label}`;
+            btn.disabled = false;
+        });
+    }
+
     // Add click handler for Download All
     downloadAllBtn.addEventListener("click", function() {
-        // Get all attachment links in this module
         const attachments = module.querySelectorAll("li.attachment.student-view");
         const downloadUrls = Array.from(attachments).map(createDownloadLink);
-        
+
         if (downloadUrls.length > 0) {
-            downloadFiles(downloadUrls);
+            runDownload(downloadUrls, downloadAllBtn, "All");
         } else {
             alert("No downloadable files found in this module.");
         }
@@ -79,12 +110,12 @@ document.querySelectorAll(".context_module").forEach(function(module) {
     // Add click handler for Download Selected
     downloadSelectedBtn.addEventListener("click", function() {
         const selectedAttachments = module.querySelectorAll("li.attachment.student-view input.file-checkbox:checked");
-        const downloadUrls = Array.from(selectedAttachments).map(checkbox => 
+        const downloadUrls = Array.from(selectedAttachments).map(checkbox =>
             createDownloadLink(checkbox.closest("li.attachment.student-view"))
         );
-        
+
         if (downloadUrls.length > 0) {
-            downloadFiles(downloadUrls);
+            runDownload(downloadUrls, downloadSelectedBtn, "Selected");
         } else {
             alert("No files selected for download.");
         }
